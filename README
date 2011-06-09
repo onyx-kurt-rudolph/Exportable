@@ -1,0 +1,62 @@
+Exportable
+==========
+
+This plugin was created to to provide a means of exporting models to xml|json, 
+while substituting the surrogate keys (id attributes) with the natural key of the
+belongs_to association.  For example:
+
+class Forum < ActiveRecord::Base
+  validates_uniqueness_of :name
+end
+
+class Post < ActiveRecord::Base
+  validates_uniqueness_of :subject, :scope => [:post_at]
+  belongs_to :forum
+end
+
+Post.export_options
+=> { :include => {:forum => {:only => [:name]}}, :except => [:id, :forum_id]}
+
+This option hash can then be passed to either the to_json or to_xml calls.
+
+This plugin defines several methods included in all models.  It also defines
+two modules Exportable::Export and Exportable::Import which contain helper
+methods for creating and ingesting xml|json documents.
+
+The plugin relies on each model defining a validates_uniqueness_of rule in
+order to determine the natural key for each model.  The plugin only processes
+belongs_to associations, not has_many relationships.
+
+
+Example
+=======
+
+
+
+Methods
+=======
+
+In each model:
+
+export_options
+=> yields an options has which can be passed to to_json and to_xml
+
+Exportable::Export
+
+dump_klass_to_<json|xml> (klass, directory)
+
+Limitations
+===========
+
+-In order to process models with polymorphic belongs_to associations, you must
+use one of the following methods from Exportable::Export:
+
+<json|xml>_batches or dump_klass_to_<json|xml>
+
+-If a table contains binary data, currently only xml dumps work.
+
+
+
+
+
+Copyright (c) 2011 [name of plugin creator], released under the MIT license
