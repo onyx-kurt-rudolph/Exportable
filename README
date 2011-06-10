@@ -2,22 +2,29 @@ Exportable
 ==========
 
 This plugin was created to to provide a means of exporting models to xml|json, 
-while substituting the surrogate keys (id attributes) with the natural key of the
-belongs_to association.  For example:
+while substituting the surrogate keys (id attributes) with the natural key of all
+belongs_to associations.  For example:
 
 class Forum < ActiveRecord::Base
   validates_uniqueness_of :name
 end
 
+class Member < ActiveRecord::Base
+  validates_uniqueness_of :login
+end
+
 class Post < ActiveRecord::Base
   validates_uniqueness_of :subject, :scope => [:post_at]
   belongs_to :forum
+  belongs_to :member
+  
+  scope :recent_activity, where("post_at >= ?", 1.days.ago)
 end
 
 Post.export_options
-=> { :include => {:forum => {:only => [:name]}}, :except => [:id, :forum_id]}
+=> { :include => {:forum => {:only => [:name]}, :member => {:only => [:login]}}, :except => [:id, :forum_id, :member_id]}
 
-This option hash can then be passed to either the to_json or to_xml calls.
+This option hash can then be passed to either the to_json or to_xml calls of the model.
 
 This plugin defines several methods included in all models.  It also defines
 two modules Exportable::Export and Exportable::Import which contain helper
@@ -25,25 +32,27 @@ methods for creating and ingesting xml|json documents.
 
 The plugin relies on each model defining a validates_uniqueness_of rule in
 order to determine the natural key for each model.  The plugin only processes
-belongs_to associations, not has_many relationships.
+belongs_to associations, not has_many (has_one) relationships.
 
 
 Example
 =======
 
+Post.export_options
+=> { :include => {:forum => {:only => [:name]}, :member => {:only => [:login]}}, :except => [:id, :forum_id, :member_id]}
 
+Post.natural_key
+=> [:subject, :post_at]
 
-Methods
-=======
+Post.recent_activity.to_json(Post.export_options)
+=> #returns a json string for all recent posts
 
-In each model:
-
-export_options
-=> yields an options has which can be passed to to_json and to_xml
-
-Exportable::Export
-
-dump_klass_to_<json|xml> (klass, directory)
+Exportable::Export::dump_klass_to_json(Post, '/tmp')
+=> #writes multiple files to the /tmp directory containing json strings for the
+  # post model.  Each file will contain up to 500 records.
+  
+Exportable::Import::load_json('/tmp')
+=> #ingests json files found in the /tmp directory
 
 Limitations
 ===========
@@ -51,7 +60,7 @@ Limitations
 -In order to process models with polymorphic belongs_to associations, you must
 use one of the following methods from Exportable::Export:
 
-<json|xml>_batches or dump_klass_to_<json|xml>
+<json|xml>_in_batches or dump_klass_to_<json|xml>
 
 -If a table contains binary data, currently only xml dumps work.
 
