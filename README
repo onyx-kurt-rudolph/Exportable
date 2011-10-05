@@ -64,7 +64,7 @@ use one of the following methods from Exportable::Export:
 
 -If a table contains binary data, currently only xml dumps work.
 
-
+-Trouble with single table inheritance (STI).  You can't just call dump_klass_to_xml(<BaseClass>,<Directory>), you have to specify each subclass of the BaseClass.
 
 
 
