@@ -48,7 +48,7 @@ module Exportable
     end
     
     #NOTE:  don't pass the root element
-    def upsert (attribute_hash, skip_attributes = [])
+    def upsert! (attribute_hash, skip_attributes = [])
       obj = self.new
       attribute_hash.each do |key,value|
         if is_association?(key)
@@ -57,6 +57,12 @@ module Exportable
           #TODO - If ID is nil we probably need to log an error
           attribute = info[:attribute]
           obj.send("#{attribute}=",id)
+        elsif self.columns_hash[key].sql_type == 'GEOMETRY' || self.columns_hash[key].sql_type == 'POINT'
+          #hack to get things working with Geospatial
+          unless value.nil?
+            geo = Geometry.from_ewkt(value)
+            obj.send("#{key}=",geo)
+          end
         else
           obj.send("#{key}=",value)
         end
@@ -69,7 +75,7 @@ module Exportable
       end
       
       model = self.send("find", :first, :conditions => conditions) || obj
-      model.update_attributes(obj.attributes.reject {|attr, value| skip_attributes.include?(attr)})
+      model.update_attributes!(obj.attributes.reject {|attr, value| skip_attributes.include?(attr)})
     end
     
     def get_belongs_to_key (klass)
@@ -101,10 +107,19 @@ module Exportable
     end
     
     def get_export_options
-      options = {:except => [], :include => {}}
+      options = {:except => [], :include => {}, :procs => []}
       
       #don't export primary keys
       options[:except] << self.primary_key.to_sym
+      
+      #add hack for geospatial support
+      self.columns_hash.each do |key, value|
+        if value.sql_type == 'GEOMETRY' || value.sql_type == 'POINT'
+          options[:except] << key.to_sym
+          options[:procs] << Proc.new {|options, record| options[:builder].tag!(key, record.send(key).try(:as_ewkt))}
+        end
+      end
+      
       
       #don't export attributes which are belongs_to associations, they are :include(d)
       self.belongs_to_associations[:fkey].each do |attribute, info|
@@ -218,16 +233,28 @@ module Exportable
             type = info[:polymorphic]
             assoc_klasses = klass.send("find", :all, :select => "DISTINCT #{type}").collect { |m| m.send("#{type}").constantize }
             assoc_klasses.each do |assoc_klass|
+              temp_options = {}
+              temp_options[:export_options] = {}
+              if (options.has_key?(:include) || options.has_key?(:exclude) || options.has_key?(:procs))
+                temp_options[:export_options] = info.clone
+              else
+                temp_options[:export_options] = klass.export_options
+              end
+              
               #merge export options
-              export_options[:except] << info[:attribute].to_sym
-              export_options[:include] = {} unless export_options.has_key?(:include)
-              export_options[:include][assoc.to_sym] = assoc_klass.get_belongs_to_key(assoc_klass)
+              temp_options[:export_options][:except] = [] unless temp_options[:export_options].has_key?(:except)
+              temp_options[:export_options][:except] << info[:attribute].to_sym
+              temp_options[:export_options][:except].flatten
+              temp_options[:export_options][:include] = {} unless temp_options[:export_options].has_key?(:include)
+              temp_options[:export_options][:include][assoc.to_sym] = assoc_klass.get_belongs_to_key(assoc_klass)
+              #temp_options[:export_options][:include].merge(options[:include]) if options.has_key?(:include)
               if options.has_key?(:find_conditions)
-                find_options = options[:find_conditions][0] = options[:find_conditions][0] + " and #{type} = '#{assoc_klass.to_s}'"
+                find_options = options[:find_conditions][0] + " and #{type} = '#{assoc_klass.to_s}'"
               else
                 find_options = ["#{type} = '#{assoc_klass.to_s}'"]
               end
-              temp_options = options.merge({:find_conditions => find_options})
+              #temp_options[:find_conditions] = options.merge({:find_conditions => find_options})
+              temp_options[:find_conditions] = find_options
               proc.call(klass, temp_options)
             end
           end
@@ -247,12 +274,12 @@ module Exportable
           root_elem = json.first.keys.first
           klass = root_elem.camelize.constantize
           json.each do |json_hash|
-            klass.upsert(json_hash[root_elem], skip_attributes)
+            klass.upsert!(json_hash[root_elem], skip_attributes)
           end
         else
           root_elem = json.keys.first
           klass = root_elem.camelize.constantize
-          klass.upsert(json[root_elem], skip_attributes)
+          klass.upsert!(json[root_elem], skip_attributes)
         end
       end
 
@@ -264,12 +291,18 @@ module Exportable
         begin
           #try interpretting the hash as a single model
           klass = root_elem.camelize.constantize
-          klass.upsert(xml_hash[root_elem], skip_attributes)
+          klass.upsert!(xml_hash[root_elem], skip_attributes)
         rescue NameError
           #try interpretting the hash a multiple model(s)
           klass = root_elem.singularize.camelize.constantize
           xml_hash[root_elem].each do |h|
-            klass.upsert(h, skip_attributes)
+            begin
+              klass.upsert!(h, skip_attributes)
+            rescue Exception => e
+              #kkr need better error handling from upsert -- should probably yield back a record for error logging
+              puts "ERROR:  #{e.message}"
+              #puts "RECORD:  #{xml_hash[root_elem].inspect}"
+            end
           end
         end
       end
@@ -281,7 +314,7 @@ module Exportable
 
       def load_xml(directory)
         proc = lambda { |content| ingest_xml(content) }
-        load_directory(directory,proc,'xml')
+        load_directory(directory,proc,'xml') 
       end
     
       private
