@@ -199,24 +199,6 @@ module Exportable
         proc = lambda { |klass, options| export_options = options.has_key?(:export_options) ? options[:export_options] : klass.export_options; in_batches(klass, options) {|batch| yield batch.to_xml(export_options)}}
         process_klass(klass, proc, options)
       end
-
-      def dump_klass_to_json(klass, directory, options = {})
-        json_in_batches(klass, options) do |batch|
-          t = Time.now
-          File.open(File.join(directory,"#{t.to_i}#{t.usec}_#{klass.to_s}.json"),'w') do |f|
-            f.write(batch)
-          end
-        end
-      end
-
-      def dump_klass_to_xml(klass, directory, options = {})
-        xml_in_batches(klass, options) do |batch|
-          t = Time.now
-          File.open(File.join(directory,"#{t.to_i}#{t.usec}_#{klass.to_s}.xml"),'w') do |f|
-            f.write(batch)
-          end
-        end
-      end
     
       private
 
@@ -247,13 +229,11 @@ module Exportable
               temp_options[:export_options][:except].flatten
               temp_options[:export_options][:include] = {} unless temp_options[:export_options].has_key?(:include)
               temp_options[:export_options][:include][assoc.to_sym] = assoc_klass.get_belongs_to_key(assoc_klass)
-              #temp_options[:export_options][:include].merge(options[:include]) if options.has_key?(:include)
               if options.has_key?(:find_conditions)
                 find_options = options[:find_conditions][0] + " and #{type} = '#{assoc_klass.to_s}'"
               else
                 find_options = ["#{type} = '#{assoc_klass.to_s}'"]
               end
-              #temp_options[:find_conditions] = options.merge({:find_conditions => find_options})
               temp_options[:find_conditions] = find_options
               proc.call(klass, temp_options)
             end
@@ -268,68 +248,69 @@ module Exportable
   
   module Exportable::Import
     class << self
+      
+      #allow users to define an error routine for logging bad records
+      mattr_accessor :error_routine
+      Exportable::Import.error_routine = lambda { |msg, rec| puts "ERROR: #{msg} for record #{rec.inspect}"}
+      
       def ingest_json(json_string, skip_attributes = [])
+        stats = {:upserted => 0, :rejected => 0}
         json = JSON.parse(json_string)
         if json.is_a?(Array)
           root_elem = json.first.keys.first
           klass = root_elem.camelize.constantize
           json.each do |json_hash|
-            klass.upsert!(json_hash[root_elem], skip_attributes)
+            begin
+              klass.upsert!(json_hash[root_elem], skip_attributes)
+              stats[:upserted] += 1
+            rescue Exception => e
+              error_routine.call(e.message,json_hash[root_elem])
+              stats[:rejected] += 1
+            end
           end
         else
           root_elem = json.keys.first
           klass = root_elem.camelize.constantize
-          klass.upsert!(json[root_elem], skip_attributes)
+          begin
+            klass.upsert!(json[root_elem], skip_attributes)
+            stats[:upserted] += 1
+          rescue Exception => e
+            error_routine.call(e.message,json[root_elem])
+            stats[:rejected] += 1
+          end
         end
+        return stats
       end
 
       def ingest_xml(xml, skip_attributes = [])
         xml_hash = Hash.from_xml(xml)
         root_elem = xml_hash.keys.first
+        stats = {:upserted => 0, :rejected => 0}
 
         #does this xml_hash define a single model or multiple model(s)?
         begin
           #try interpretting the hash as a single model
           klass = root_elem.camelize.constantize
           klass.upsert!(xml_hash[root_elem], skip_attributes)
+          stats[:upserted] += 1
         rescue NameError
           #try interpretting the hash a multiple model(s)
           klass = root_elem.singularize.camelize.constantize
           xml_hash[root_elem].each do |h|
             begin
               klass.upsert!(h, skip_attributes)
+              stats[:upserted] += 1
             rescue Exception => e
-              #kkr need better error handling from upsert -- should probably yield back a record for error logging
-              puts "ERROR:  #{e.message}"
-              #puts "RECORD:  #{xml_hash[root_elem].inspect}"
+              error_routine.call(e.message, h)
+              stats[:rejected] += 1
             end
           end
+        rescue Exception => e
+          error_routine.call(e.message, h)
+          stats[:rejected] += 1
         end
-      end
-
-      def load_json(directory)
-        proc = lambda { |content| ingest_json(content) }
-        load_directory(directory,proc,'json')
-      end
-
-      def load_xml(directory)
-        proc = lambda { |content| ingest_xml(content) }
-        load_directory(directory,proc,'xml') 
-      end
-    
-      private
-
-      def load_directory(directory, proc, content_type = 'json')
-        Dir[File.join(directory,"*.#{content_type}")].sort.each do |file_name|
-          print "Loading #{file_name} ... "
-          t1 = Time.now
-          File.open(file_name) do |f|
-            proc.call(f.read)
-          end
-          t2 = Time.now
-          puts "Elapsed: #{t2 - t1}"
-        end
-      end
+        return stats
+      end #ingest_xml
       
     end
   end #Exportable::Import

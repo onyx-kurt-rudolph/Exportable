@@ -47,24 +47,19 @@ Post.natural_key
 Post.recent_activity.to_json(Post.export_options)
 => #returns a json string for all recent posts
 
-Exportable::Export::dump_klass_to_json(Post, '/tmp')
-=> #writes multiple files to the /tmp directory containing json strings for the
-  # post model.  Each file will contain up to 500 records.
-  
-Exportable::Import::load_json('/tmp')
-=> #ingests json files found in the /tmp directory
-
 Limitations
 ===========
 
 -In order to process models with polymorphic belongs_to associations, you must
 use one of the following methods from Exportable::Export:
 
-<json|xml>_in_batches or dump_klass_to_<json|xml>
+<json|xml>_in_batches 
 
 -If a table contains binary data, currently only xml dumps work.
 
--Trouble with single table inheritance (STI).  You can't just call dump_klass_to_xml(<BaseClass>,<Directory>), you have to specify each subclass of the BaseClass.
+-For tables with single-table-inheritance, export each subclass separately.
+
+
 
 
 
