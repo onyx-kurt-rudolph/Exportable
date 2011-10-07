@@ -26,6 +26,26 @@ Post.export_options
 
 This option hash can then be passed to either the to_json or to_xml calls of the model.
 
+Post.natural_key
+=> [:subject, :post_at]
+
+The export_options and natural_key for a model can be overridden by accessing 
+their variables export_options_hash and natural_key_attributes
+
+class Post < ActiveRecord::Base
+  validates_uniqueness_of :subject, :scope => [:post_at]
+  belongs_to :forum
+  belongs_to :member
+  
+  scope :recent_activity, where("post_at >= ?", 1.days.ago)
+  
+  #override default export options
+  self.export_options_hash = { :include => 
+      {:forum => {:only => [:name]}, :member => {:only => [:login]}
+    }, 
+    :except => [:id, :forum_id, :member_id], :post_user_name }
+end
+
 This plugin defines several methods included in all models.  It also defines
 two modules Exportable::Export and Exportable::Import which contain helper
 methods for creating and ingesting xml|json documents.
