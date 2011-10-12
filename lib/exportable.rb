@@ -1,5 +1,6 @@
 require 'json'
 require 'active_record'
+require 'RGeo'
 
 module Exportable
   VERSION = '0.1'
@@ -13,6 +14,8 @@ module Exportable
     attr_accessor :natural_key_attributes
     attr_accessor :export_options_hash
     attr_accessor :belongs_to_associations_hash
+    
+    @@GEOMETRY_DATATYPES = %w{GEOMETRY GEOGRAPHY POINT POLYGON LINESTRING MULTIPOLYGON}
     
     def natural_key
       self.natural_key_attributes = get_natural_key if self.natural_key_attributes.nil?
@@ -57,10 +60,13 @@ module Exportable
           #TODO - If ID is nil we probably need to log an error
           attribute = info[:attribute]
           obj.send("#{attribute}=",id)
-        elsif self.columns_hash[key].sql_type == 'GEOMETRY' || self.columns_hash[key].sql_type == 'POINT'
+        #elsif self.columns_hash[key].sql_type == 'GEOMETRY' || self.columns_hash[key].sql_type == 'POINT'
+        elsif @@GEOMETRY_DATATYPES.select { |dt| self.columns_hash[key].sql_type =~ /#{dt}/i }.size > 0
           #hack to get things working with Geospatial
           unless value.nil?
-            geo = Geometry.from_ewkt(value)
+            #geo = Geometry.from_ewkt(value)
+            factory = RGeo::Geographic.simple_mercator_factory(:srid => 4326)
+            geo = Factory.parse_wkt(value)
             obj.send("#{key}=",geo)
           end
         else
@@ -114,9 +120,9 @@ module Exportable
       
       #add hack for geospatial support
       self.columns_hash.each do |key, value|
-        if value.sql_type == 'GEOMETRY' || value.sql_type == 'POINT'
+        if @@GEOMETRY_DATATYPES.select { |dt| value.sql_type =~ /#{dt}/i }.size > 0
           options[:except] << key.to_sym
-          options[:procs] << Proc.new {|options, record| options[:builder].tag!(key, record.send(key).try(:as_ewkt))}
+          options[:procs] << Proc.new {|options, record| options[:builder].tag!(key, record.send(key).try(:as_text))}
         end
       end
       
