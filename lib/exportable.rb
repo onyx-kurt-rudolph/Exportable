@@ -66,7 +66,7 @@ module Exportable
           unless value.nil?
             #geo = Geometry.from_ewkt(value)
             factory = RGeo::Geographic.simple_mercator_factory(:srid => 4326)
-            geo = Factory.parse_wkt(value)
+            geo = factory.parse_wkt(value)
             obj.send("#{key}=",geo)
           end
         else
