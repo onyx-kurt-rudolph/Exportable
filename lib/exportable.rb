@@ -81,7 +81,7 @@ module Exportable
       end
       
       model = self.send("find", :first, :conditions => conditions) || obj
-      model.update_attributes!(obj.attributes.reject {|attr, value| skip_attributes.include?(attr)})
+      (model.nil?) ? obj.save! : model.update_attributes!(obj.attributes.reject {|attr, value| skip_attributes.include?(attr)})
     end
     
     def get_belongs_to_key (klass)
@@ -211,7 +211,7 @@ module Exportable
       def in_batches(klass, options = {})
         batch_size = options.has_key?(:batch_size) ? options[:batch_size] : 500
         conditions = options.has_key?(:find_conditions) ? options[:find_conditions] : {}
-        klass.find_in_batches(:batch_size => batch_size, :conditions => conditions) {|batch| yield batch}
+        klass.unscoped.find_in_batches(:batch_size => batch_size, :conditions => conditions) {|batch| yield batch}
       end
     
       def process_klass (klass, proc, options)
@@ -259,7 +259,7 @@ module Exportable
       mattr_accessor :error_routine
       Exportable::Import.error_routine = lambda { |msg, rec| puts "ERROR: #{msg} for record #{rec.inspect}"}
       
-      def ingest_json(json_string, skip_attributes = [])
+      def ingest_json(json_string, skip_attributes = [:id])
         stats = {:upserted => 0, :rejected => 0}
         json = JSON.parse(json_string)
         if json.is_a?(Array)
@@ -288,7 +288,7 @@ module Exportable
         return stats
       end
 
-      def ingest_xml(xml, skip_attributes = [])
+      def ingest_xml(xml, skip_attributes = [:id])
         xml_hash = Hash.from_xml(xml)
         root_elem = xml_hash.keys.first
         stats = {:upserted => 0, :rejected => 0}
