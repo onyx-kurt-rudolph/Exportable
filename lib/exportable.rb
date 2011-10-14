@@ -81,7 +81,7 @@ module Exportable
       end
       
       model = self.send("find", :first, :conditions => conditions) || obj
-      (model.nil?) ? obj.save! : model.update_attributes!(obj.attributes.reject {|attr, value| skip_attributes.include?(attr)})
+      (model.nil?) ? obj.save! : model.update_attributes!(obj.attributes.reject {|attr, value| skip_attributes.include?(attr.to_s)})
     end
     
     def get_belongs_to_key (klass)
